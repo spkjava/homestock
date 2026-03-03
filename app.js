@@ -215,6 +215,13 @@
     const trimmed = name.trim();
     if (!trimmed) return;
 
+    // เช็คชื่อซ้ำในสถานที่เดียวกัน
+    const duplicate = loc.items.find(i => i.name.toLowerCase() === trimmed.toLowerCase());
+    if (duplicate) {
+      showToast(`⚠️ "${trimmed}" มีอยู่แล้วใน "${loc.name}"`);
+      return;
+    }
+
     const qty = Math.max(0, parseInt(defaultQty, 10) || 1);
 
     loc.items.push({
