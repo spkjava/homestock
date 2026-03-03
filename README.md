@@ -22,23 +22,7 @@
 4. ใช้ปุ่ม +/- เพื่อจัดการ stock
 5. ใช้ช่องค้นหาเพื่อหาสินค้าที่ต้องการ
 
-## 🌐 Deploy ลง GitHub Pages
 
-1. สร้าง repository ใหม่บน GitHub
-2. Push โค้ดทั้งหมดขึ้น repository:
-   ```bash
-   git init
-   git add .
-   git commit -m "Initial commit: HOME STOCK"
-   git branch -M main
-   git remote add origin https://github.com/<your-username>/<repo-name>.git
-   git push -u origin main
-   ```
-3. ไปที่ **Settings** → **Pages**
-4. เลือก **Source** เป็น `main` branch, folder `/` (root)
-5. กด **Save** — เว็บจะพร้อมใช้ที่ `https://<your-username>.github.io/<repo-name>/`
-
----
 
 ## 🛠️ เทคโนโลยีที่ใช้ + อธิบายการทำงาน
 
