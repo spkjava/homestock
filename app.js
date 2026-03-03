@@ -41,12 +41,43 @@
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
         state = JSON.parse(stored);
+        deduplicateState();
         return true;
       }
     } catch (e) {
       console.error('Failed to load from localStorage:', e);
     }
     return false;
+  }
+
+  // --- ลบข้อมูลซ้ำ ---
+  function deduplicateState() {
+    // ลบสถานที่ชื่อซ้ำ
+    const seenLocNames = new Set();
+    state.locations = state.locations.filter(loc => {
+      const key = loc.name.toLowerCase();
+      if (seenLocNames.has(key)) return false;
+      seenLocNames.add(key);
+      return true;
+    });
+
+    // ลบสินค้าชื่อซ้ำในแต่ละสถานที่
+    state.locations.forEach(loc => {
+      const seenItemNames = new Set();
+      loc.items = loc.items.filter(item => {
+        const key = item.name.toLowerCase();
+        if (seenItemNames.has(key)) return false;
+        seenItemNames.add(key);
+        return true;
+      });
+    });
+
+    // อัปเดต activeLocationId ถ้าถูกลบไป
+    if (state.activeLocationId && !state.locations.find(l => l.id === state.activeLocationId)) {
+      state.activeLocationId = state.locations.length ? state.locations[0].id : null;
+    }
+
+    saveLocal();
   }
 
   // --- Cloud Sync (Google Sheets) ---
@@ -173,6 +204,13 @@
   function addLocation(name) {
     const trimmed = name.trim();
     if (!trimmed) return;
+
+    // เช็คชื่อสถานที่ซ้ำ
+    const duplicate = state.locations.find(l => l.name.toLowerCase() === trimmed.toLowerCase());
+    if (duplicate) {
+      showToast(`⚠️ สถานที่ "${trimmed}" มีอยู่แล้ว`);
+      return;
+    }
 
     const loc = {
       id: generateId(),
