@@ -1,6 +1,6 @@
 /* ========================================
-   Household Stock Tracker — Application Logic
-   localStorage-based, no framework needed
+   HOME STOCK — Application Logic
+   localStorage + Google Sheets cloud sync
    ======================================== */
 
 (function () {
@@ -9,6 +9,10 @@
   // --- Constants ---
   const STORAGE_KEY = 'household_stock_tracker';
 
+  // ⚠️ ใส่ URL ของ Google Apps Script Web App ที่นี่
+  // ถ้ายังไม่ได้ setup ให้ปล่อยเป็น '' จะใช้ localStorage อย่างเดียว
+  const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzrK9F3g5PrSctUnGlX_f_sQwMP8Pmn1iibmpg7N-LzIi5CyeGBgohgFciD5zGWYTquRw/exec';
+
   // --- State ---
   let state = {
     locations: [],
@@ -16,32 +20,136 @@
   };
 
   let searchQuery = '';
+  let syncStatus = 'idle'; // 'idle' | 'syncing' | 'synced' | 'error' | 'offline'
 
   // --- UUID Generator ---
   function generateId() {
     return Date.now().toString(36) + Math.random().toString(36).substring(2, 9);
   }
 
-  // --- Storage ---
-  function saveState() {
+  // --- Storage (localStorage) ---
+  function saveLocal() {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } catch (e) {
       console.error('Failed to save to localStorage:', e);
-      showToast('⚠️ ไม่สามารถบันทึกข้อมูลได้');
     }
   }
 
-  function loadState() {
+  function loadLocal() {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
         state = JSON.parse(stored);
+        return true;
       }
     } catch (e) {
       console.error('Failed to load from localStorage:', e);
-      state = { locations: [], activeLocationId: null };
     }
+    return false;
+  }
+
+  // --- Cloud Sync (Google Sheets) ---
+  function isCloudEnabled() {
+    return APPS_SCRIPT_URL && APPS_SCRIPT_URL.length > 0;
+  }
+
+  async function syncToCloud() {
+    if (!isCloudEnabled()) return;
+
+    setSyncStatus('syncing');
+    try {
+      const response = await fetch(APPS_SCRIPT_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          locations: state.locations,
+          activeLocationId: state.activeLocationId
+        })
+      });
+
+      // no-cors mode returns opaque response, so we can't read it
+      // but if fetch didn't throw, it was sent successfully
+      setSyncStatus('synced');
+      setTimeout(() => {
+        if (syncStatus === 'synced') setSyncStatus('idle');
+      }, 2000);
+    } catch (e) {
+      console.error('Cloud sync failed:', e);
+      setSyncStatus('error');
+      setTimeout(() => {
+        if (syncStatus === 'error') setSyncStatus('idle');
+      }, 3000);
+    }
+  }
+
+  async function loadFromCloud() {
+    if (!isCloudEnabled()) return false;
+
+    setSyncStatus('syncing');
+    try {
+      const response = await fetch(APPS_SCRIPT_URL + '?t=' + Date.now());
+      const data = await response.json();
+
+      if (data && data.locations && !data.error) {
+        state = {
+          locations: data.locations || [],
+          activeLocationId: data.activeLocationId || null
+        };
+        saveLocal(); // Cache locally
+        setSyncStatus('synced');
+        setTimeout(() => {
+          if (syncStatus === 'synced') setSyncStatus('idle');
+        }, 2000);
+        return true;
+      }
+    } catch (e) {
+      console.error('Failed to load from cloud:', e);
+      setSyncStatus('offline');
+      setTimeout(() => {
+        if (syncStatus === 'offline') setSyncStatus('idle');
+      }, 3000);
+    }
+    return false;
+  }
+
+  function setSyncStatus(status) {
+    syncStatus = status;
+    updateSyncIndicator();
+  }
+
+  function updateSyncIndicator() {
+    const el = document.getElementById('sync-indicator');
+    if (!el) return;
+
+    if (!isCloudEnabled()) {
+      el.innerHTML = '<span class="sync-badge sync-badge--offline">💾 Local only</span>';
+      return;
+    }
+
+    switch (syncStatus) {
+      case 'syncing':
+        el.innerHTML = '<span class="sync-badge sync-badge--syncing">☁️ กำลัง sync...</span>';
+        break;
+      case 'synced':
+        el.innerHTML = '<span class="sync-badge sync-badge--synced">✅ Synced</span>';
+        break;
+      case 'error':
+        el.innerHTML = '<span class="sync-badge sync-badge--error">⚠️ Sync ผิดพลาด</span>';
+        break;
+      case 'offline':
+        el.innerHTML = '<span class="sync-badge sync-badge--offline">📴 Offline mode</span>';
+        break;
+      default:
+        el.innerHTML = '<span class="sync-badge sync-badge--idle">☁️ Cloud</span>';
+    }
+  }
+
+  // --- Save (localStorage + Cloud) ---
+  function saveState() {
+    saveLocal();
+    syncToCloud(); // async, non-blocking
   }
 
   // --- Helpers ---
@@ -179,6 +287,7 @@
   function render() {
     renderLocationTabs();
     renderStockSection();
+    updateSyncIndicator();
   }
 
   function renderLocationTabs() {
@@ -406,9 +515,7 @@
   }
 
   // --- Init ---
-  function init() {
-    loadState();
-
+  async function init() {
     // Location form
     const locationForm = document.getElementById('location-form');
     locationForm.addEventListener('submit', (e) => {
@@ -418,7 +525,30 @@
       input.value = '';
     });
 
+    // Refresh button
+    const refreshBtn = document.getElementById('refresh-btn');
+    if (refreshBtn) {
+      refreshBtn.addEventListener('click', async () => {
+        const loaded = await loadFromCloud();
+        if (loaded) {
+          render();
+          showToast('☁️ โหลดข้อมูลจาก Cloud แล้ว');
+        } else {
+          showToast('⚠️ ไม่สามารถโหลดจาก Cloud ได้');
+        }
+      });
+    }
+
+    // Try loading from cloud first, fallback to localStorage
+    loadLocal(); // Load local cache first for instant display
     render();
+
+    if (isCloudEnabled()) {
+      const cloudLoaded = await loadFromCloud();
+      if (cloudLoaded) {
+        render();
+      }
+    }
   }
 
   // Run on DOM ready
